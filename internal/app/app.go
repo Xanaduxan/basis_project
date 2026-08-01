@@ -7,17 +7,27 @@ import (
 	"log/slog"
 	nethttp "net/http"
 
+	bcryptadapter "basisProject/internal/adapter/bcrypt"
+	jwtadapter "basisProject/internal/adapter/jwt"
 	mysqladapter "basisProject/internal/adapter/mysql"
 	redisadapter "basisProject/internal/adapter/redis"
 	"basisProject/internal/config"
+	"basisProject/internal/controller/handler/auth"
 	httpcontroller "basisProject/internal/controller/http"
 	"basisProject/internal/controller/middleware"
+	"basisProject/internal/usecase/auth"
 )
 
-func Run(ctx context.Context, configPath string) error {
+func Run(
+	ctx context.Context,
+	configPath string,
+) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		return fmt.Errorf("load application configuration: %w", err)
+		return fmt.Errorf(
+			"load application configuration: %w",
+			err,
+		)
 	}
 
 	mysqlDB, err := mysqladapter.Open(
@@ -35,7 +45,7 @@ func Run(ctx context.Context, configPath string) error {
 
 	defer func() {
 		if err := mysqlDB.Close(); err != nil {
-			slog.Error("close mysql connection pool", "error", err)
+			slog.Error("close mysql", "error", err)
 		}
 	}()
 
@@ -53,14 +63,35 @@ func Run(ctx context.Context, configPath string) error {
 
 	defer func() {
 		if err := redisClient.Close(); err != nil {
-			slog.Error("close redis client", "error", err)
+			slog.Error("close redis", "error", err)
 		}
 	}()
 
-	router := httpcontroller.NewRouter()
-	httpcontroller.RegisterRoutes(router)
+	userRepository := mysqladapter.NewUserRepository(mysqlDB)
+	passwordHasher := bcryptadapter.New()
+	tokenManager := jwtadapter.New(
+		cfg.JWT.Secret,
+		cfg.JWT.Lifetime,
+	)
 
-	handler := middleware.Recovery(router)
+	authUseCase := usecase.NewAuth(
+		userRepository,
+		passwordHasher,
+		tokenManager,
+	)
+
+	authHandler := handler.NewAuth(authUseCase)
+	authMiddleware := middleware.NewAuth(tokenManager)
+
+	router := httpcontroller.NewRouter()
+
+	httpcontroller.RegisterRoutes(
+		router,
+		authHandler,
+		authMiddleware.Authenticate,
+	)
+
+	rootHandler := middleware.Recovery(router)
 
 	server := httpcontroller.NewServer(
 		httpcontroller.ServerConfig{
@@ -71,17 +102,21 @@ func Run(ctx context.Context, configPath string) error {
 			WriteTimeout:      cfg.App.WriteTimeout,
 			IdleTimeout:       cfg.App.IdleTimeout,
 		},
-		handler,
+		rootHandler,
 	)
 
 	slog.Info(
-		"HTTP server started",
+		"application dependencies initialized",
+	)
+
+	slog.Info(
+		"http server started",
 		"address", server.Addr,
 	)
 
 	if err := server.ListenAndServe(); err != nil &&
 		!errors.Is(err, nethttp.ErrServerClosed) {
-		return fmt.Errorf("run HTTP server: %w", err)
+		return fmt.Errorf("run http server: %w", err)
 	}
 
 	return nil
