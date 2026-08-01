@@ -1,0 +1,28 @@
+app:
+  host: "0.0.0.0"
+  port: 8080
+  shutdown_timeout: "10s"
+
+mysql:
+  dsn: ""
+  max_open_connections: 25
+  max_idle_connections: 10
+  connection_max_lifetime: "5m"
+
+redis:
+  address: "localhost:6379"
+  password: ""
+  database: 0
+  task_ttl: "5m"
+
+jwt:
+  secret: ""
+  lifetime: "1h"
+
+email:
+  base_url: "http://localhost:8081"
+  timeout: "3s"
+
+rate_limit:
+  requests: 100
+  window: "1m"
