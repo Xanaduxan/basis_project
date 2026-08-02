@@ -178,6 +178,125 @@ func (h *Task) List(
 	}
 }
 
+func (h *Task) Update(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+) {
+	userID, ok := authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+
+	taskID, err := parseRequiredPositiveInt64(
+		r.PathValue("id"),
+	)
+	if err != nil {
+		httpcontroller.WriteError(
+			w,
+			nethttp.StatusBadRequest,
+			"invalid task id",
+		)
+		return
+	}
+
+	var request taskdto.UpdateRequest
+
+	if err := httpcontroller.ReadJSON(r, &request); err != nil {
+		httpcontroller.WriteError(
+			w,
+			nethttp.StatusBadRequest,
+			"invalid JSON",
+		)
+		return
+	}
+
+	updatedTask, err := h.tasks.Update(
+		r.Context(),
+		taskusecase.UpdateInput{
+			TaskID:        taskID,
+			RequestedBy:   userID,
+			Title:         request.Title,
+			Description:   request.Description,
+			Status:        request.Status,
+			AssigneeID:    request.AssigneeID.Value,
+			AssigneeIDSet: request.AssigneeID.Set,
+		},
+	)
+	if err != nil {
+		writeTaskError(w, err, "update task")
+		return
+	}
+
+	if err := httpcontroller.WriteJSON(
+		w,
+		nethttp.StatusOK,
+		taskResponse(*updatedTask),
+	); err != nil {
+		slog.Error(
+			"write update task response",
+			"error", err,
+		)
+	}
+}
+
+func (h *Task) History(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+) {
+	userID, ok := authenticatedUserID(w, r)
+	if !ok {
+		return
+	}
+
+	taskID, err := parseRequiredPositiveInt64(
+		r.PathValue("id"),
+	)
+	if err != nil {
+		httpcontroller.WriteError(
+			w,
+			nethttp.StatusBadRequest,
+			"invalid task id",
+		)
+		return
+	}
+
+	history, err := h.tasks.History(
+		r.Context(),
+		taskusecase.HistoryInput{
+			TaskID:      taskID,
+			RequestedBy: userID,
+		},
+	)
+	if err != nil {
+		writeTaskError(w, err, "get task history")
+		return
+	}
+
+	response := make(
+		[]taskdto.HistoryResponse,
+		0,
+		len(history),
+	)
+
+	for _, entry := range history {
+		response = append(
+			response,
+			historyResponse(entry),
+		)
+	}
+
+	if err := httpcontroller.WriteJSON(
+		w,
+		nethttp.StatusOK,
+		response,
+	); err != nil {
+		slog.Error(
+			"write task history response",
+			"error", err,
+		)
+	}
+}
+
 func authenticatedUserID(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,
@@ -270,6 +389,13 @@ func writeTaskError(
 			"assignee is not a team member",
 		)
 
+	case errors.Is(err, domain.ErrTaskNotFound):
+		httpcontroller.WriteError(
+			w,
+			nethttp.StatusNotFound,
+			"task not found",
+		)
+
 	default:
 		slog.Error(
 			operation,
@@ -296,5 +422,23 @@ func taskResponse(task domain.Task) taskdto.Response {
 		CompletedAt: task.CompletedAt,
 		CreatedAt:   task.CreatedAt,
 		UpdatedAt:   task.UpdatedAt,
+	}
+}
+
+func historyResponse(
+	history domain.TaskHistory,
+) taskdto.HistoryResponse {
+	return taskdto.HistoryResponse{
+		ID:     history.ID,
+		TaskID: history.TaskID,
+		ChangedBy: taskdto.HistoryUserResponse{
+			ID:    history.ChangedBy,
+			Name:  history.ChangedByName,
+			Email: history.ChangedByEmail,
+		},
+		FieldName: history.FieldName,
+		OldValue:  history.OldValue,
+		NewValue:  history.NewValue,
+		ChangedAt: history.ChangedAt,
 	}
 }

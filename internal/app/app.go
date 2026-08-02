@@ -1,6 +1,12 @@
 package app
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	nethttp "net/http"
+
 	bcryptadapter "basisProject/internal/adapter/bcrypt"
 	emailadapter "basisProject/internal/adapter/email"
 	jwtadapter "basisProject/internal/adapter/jwt"
@@ -15,11 +21,6 @@ import (
 	authusecase "basisProject/internal/usecase/auth"
 	taskusecase "basisProject/internal/usecase/task"
 	teamusecase "basisProject/internal/usecase/team"
-	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	nethttp "net/http"
 )
 
 func Run(
@@ -87,6 +88,11 @@ func Run(
 	teamRepository := mysqladapter.NewTeamRepository(mysqlDB)
 	taskRepository := mysqladapter.NewTaskRepository(mysqlDB)
 
+	taskCache := redisadapter.NewTaskCache(
+		redisClient,
+		cfg.Redis.TaskTTL,
+	)
+
 	passwordHasher := bcryptadapter.New()
 
 	tokenManager := jwtadapter.New(
@@ -113,6 +119,7 @@ func Run(
 
 	tasksUseCase := taskusecase.NewTasks(
 		taskRepository,
+		taskCache,
 	)
 
 	authHandler := authhandler.NewAuth(authUseCase)

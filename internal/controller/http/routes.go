@@ -41,6 +41,16 @@ type TaskHandler interface {
 		w nethttp.ResponseWriter,
 		r *nethttp.Request,
 	)
+
+	Update(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
+
+	History(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
 }
 
 func RegisterRoutes(
@@ -102,27 +112,19 @@ func RegisterRoutes(
 		),
 	)
 
-	notImplemented := nethttp.HandlerFunc(
-		func(w nethttp.ResponseWriter, _ *nethttp.Request) {
-			WriteError(
-				w,
-				nethttp.StatusNotImplemented,
-				"not implemented",
-			)
-		},
-	)
-
-	protectedNotImplemented := authenticate(notImplemented)
-
 	router.Handle(
 		nethttp.MethodPut,
 		"/tasks/{id}",
-		protectedNotImplemented,
+		authenticate(
+			nethttp.HandlerFunc(taskHandler.Update),
+		),
 	)
 
 	router.Handle(
 		nethttp.MethodGet,
 		"/tasks/{id}/history",
-		protectedNotImplemented,
+		authenticate(
+			nethttp.HandlerFunc(taskHandler.History),
+		),
 	)
 }

@@ -13,10 +13,18 @@ const (
 	TaskStatusDone       TaskStatus = "done"
 )
 
+const (
+	TaskFieldTitle       = "title"
+	TaskFieldDescription = "description"
+	TaskFieldStatus      = "status"
+	TaskFieldAssigneeID  = "assignee_id"
+)
+
 var (
 	ErrAssigneeNotTeamMember = errors.New(
 		"assignee is not a team member",
 	)
+	ErrTaskNotFound = errors.New("task not found")
 )
 
 func (s TaskStatus) Valid() bool {
@@ -50,4 +58,22 @@ type TaskFilter struct {
 	AssigneeID *int64
 	Limit      int
 	Offset     int
+}
+
+type TaskChange struct {
+	FieldName string
+	OldValue  *string
+	NewValue  *string
+}
+
+type TaskHistory struct {
+	ID             int64
+	TaskID         int64
+	ChangedBy      int64
+	ChangedByName  string
+	ChangedByEmail string
+	FieldName      string
+	OldValue       *string
+	NewValue       *string
+	ChangedAt      time.Time
 }

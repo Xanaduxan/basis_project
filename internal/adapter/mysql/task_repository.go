@@ -3,8 +3,10 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"basisProject/internal/domain"
 )
@@ -15,6 +17,14 @@ type TaskRepository struct {
 
 type taskScanner interface {
 	Scan(destination ...any) error
+}
+
+type taskQueryer interface {
+	QueryRowContext(
+		ctx context.Context,
+		query string,
+		args ...any,
+	) *sql.Row
 }
 
 func NewTaskRepository(db *sql.DB) *TaskRepository {
@@ -94,7 +104,7 @@ func (r *TaskRepository) Create(
 		)
 	}
 
-	createdTask, err := r.findByID(ctx, taskID)
+	createdTask, err := r.FindByID(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf(
 			"load created task: %w",
@@ -191,11 +201,249 @@ func (r *TaskRepository) List(
 	return tasks, nil
 }
 
-func (r *TaskRepository) findByID(
+func (r *TaskRepository) FindByID(
 	ctx context.Context,
 	taskID int64,
 ) (*domain.Task, error) {
-	row := r.db.QueryRowContext(
+	task, err := findTaskByID(ctx, r.db, taskID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrTaskNotFound
+		}
+
+		return nil, fmt.Errorf(
+			"find task by id: %w",
+			err,
+		)
+	}
+
+	return task, nil
+}
+
+func (r *TaskRepository) Update(
+	ctx context.Context,
+	task *domain.Task,
+	changedBy int64,
+	changes []domain.TaskChange,
+) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf(
+			"begin update task transaction: %w",
+			err,
+		)
+	}
+
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	assignments := make([]string, 0, len(changes)+1)
+	arguments := make([]any, 0, len(changes)+2)
+
+	for _, change := range changes {
+		switch change.FieldName {
+		case domain.TaskFieldTitle:
+			assignments = append(assignments, "title = ?")
+			arguments = append(arguments, task.Title)
+
+		case domain.TaskFieldDescription:
+			assignments = append(assignments, "description = ?")
+			arguments = append(arguments, task.Description)
+
+		case domain.TaskFieldStatus:
+			assignments = append(
+				assignments,
+				"status = ?",
+				"completed_at = ?",
+			)
+			arguments = append(
+				arguments,
+				string(task.Status),
+				nullableTime(task.CompletedAt),
+			)
+
+		case domain.TaskFieldAssigneeID:
+			assignments = append(assignments, "assignee_id = ?")
+			arguments = append(
+				arguments,
+				nullableInt64(task.AssigneeID),
+			)
+
+		default:
+			return fmt.Errorf(
+				"unsupported task field %q",
+				change.FieldName,
+			)
+		}
+	}
+
+	if len(assignments) == 0 {
+		return nil
+	}
+
+	arguments = append(arguments, task.ID)
+
+	result, err := tx.ExecContext(
+		ctx,
+		"UPDATE tasks SET "+
+			strings.Join(assignments, ", ")+
+			" WHERE id = ?",
+		arguments...,
+	)
+	if err != nil {
+		return fmt.Errorf("update task row: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf(
+			"get updated task row count: %w",
+			err,
+		)
+	}
+
+	if rowsAffected == 0 {
+		return domain.ErrTaskNotFound
+	}
+
+	for _, change := range changes {
+		_, err := tx.ExecContext(
+			ctx,
+			`
+        INSERT INTO task_history (
+          task_id,
+          changed_by,
+          field_name,
+          old_value,
+          new_value
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `,
+			task.ID,
+			changedBy,
+			change.FieldName,
+			nullableString(change.OldValue),
+			nullableString(change.NewValue),
+		)
+		if err != nil {
+			return fmt.Errorf(
+				"insert task history: %w",
+				err,
+			)
+		}
+	}
+
+	updatedTask, err := findTaskByID(ctx, tx, task.ID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.ErrTaskNotFound
+		}
+
+		return fmt.Errorf(
+			"load updated task: %w",
+			err,
+		)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf(
+			"commit update task transaction: %w",
+			err,
+		)
+	}
+
+	*task = *updatedTask
+
+	return nil
+}
+
+func (r *TaskRepository) History(
+	ctx context.Context,
+	taskID int64,
+) ([]domain.TaskHistory, error) {
+	rows, err := r.db.QueryContext(
+		ctx,
+		`
+      SELECT
+        th.id,
+        th.task_id,
+        th.changed_by,
+        u.name,
+        u.email,
+        th.field_name,
+        th.old_value,
+        th.new_value,
+        th.changed_at
+      FROM task_history AS th
+      INNER JOIN users AS u
+        ON u.id = th.changed_by
+      WHERE th.task_id = ?
+      ORDER BY th.changed_at ASC, th.id ASC
+    `,
+		taskID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"query task history: %w",
+			err,
+		)
+	}
+	defer rows.Close()
+
+	history := make([]domain.TaskHistory, 0)
+
+	for rows.Next() {
+		var entry domain.TaskHistory
+		var oldValue sql.NullString
+		var newValue sql.NullString
+
+		if err := rows.Scan(
+			&entry.ID,
+			&entry.TaskID,
+			&entry.ChangedBy,
+			&entry.ChangedByName,
+			&entry.ChangedByEmail,
+			&entry.FieldName,
+			&oldValue,
+			&newValue,
+			&entry.ChangedAt,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"scan task history: %w",
+				err,
+			)
+		}
+
+		if oldValue.Valid {
+			value := oldValue.String
+			entry.OldValue = &value
+		}
+
+		if newValue.Valid {
+			value := newValue.String
+			entry.NewValue = &value
+		}
+
+		history = append(history, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"iterate task history: %w",
+			err,
+		)
+	}
+
+	return history, nil
+}
+
+func findTaskByID(
+	ctx context.Context,
+	queryer taskQueryer,
+	taskID int64,
+) (*domain.Task, error) {
+	row := queryer.QueryRowContext(
 		ctx,
 		`
       SELECT
@@ -215,15 +463,7 @@ func (r *TaskRepository) findByID(
 		taskID,
 	)
 
-	task, err := scanTask(row)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"find task by id: %w",
-			err,
-		)
-	}
-
-	return task, nil
+	return scanTask(row)
 }
 
 func scanTask(scanner taskScanner) (*domain.Task, error) {
@@ -261,4 +501,28 @@ func scanTask(scanner taskScanner) (*domain.Task, error) {
 	}
 
 	return &task, nil
+}
+
+func nullableInt64(value *int64) any {
+	if value == nil {
+		return nil
+	}
+
+	return *value
+}
+
+func nullableTime(value *time.Time) any {
+	if value == nil {
+		return nil
+	}
+
+	return *value
+}
+
+func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+
+	return *value
 }
