@@ -21,7 +21,15 @@ func (r *Router) Handle(
 	path string,
 	handler nethttp.Handler,
 ) {
-	pattern := method + " " + apiPrefix + path
+	r.HandleRoot(method, apiPrefix+path, handler)
+}
+
+func (r *Router) HandleRoot(
+	method string,
+	path string,
+	handler nethttp.Handler,
+) {
+	pattern := method + " " + path
 	r.mux.Handle(pattern, handler)
 }
 

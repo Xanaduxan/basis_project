@@ -137,3 +137,7 @@ func (c *Client) SendInvitation(
 
 	return nil
 }
+
+func (c *Client) CloseIdleConnections() {
+	c.httpClient.CloseIdleConnections()
+}

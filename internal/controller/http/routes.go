@@ -58,12 +58,19 @@ func RegisterRoutes(
 	authHandler AuthHandler,
 	teamHandler TeamHandler,
 	taskHandler TaskHandler,
+	metricsHandler nethttp.Handler,
 	authenticate func(nethttp.Handler) nethttp.Handler,
 	rateLimit func(nethttp.Handler) nethttp.Handler,
 ) {
 	protected := func(handler nethttp.Handler) nethttp.Handler {
 		return authenticate(rateLimit(handler))
 	}
+
+	router.HandleRoot(
+		nethttp.MethodGet,
+		"/metrics",
+		metricsHandler,
+	)
 
 	router.Handle(
 		nethttp.MethodPost,

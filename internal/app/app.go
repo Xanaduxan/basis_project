@@ -11,6 +11,7 @@ import (
 	emailadapter "basisProject/internal/adapter/email"
 	jwtadapter "basisProject/internal/adapter/jwt"
 	mysqladapter "basisProject/internal/adapter/mysql"
+	prometheusadapter "basisProject/internal/adapter/prometheus"
 	redisadapter "basisProject/internal/adapter/redis"
 	"basisProject/internal/config"
 	authhandler "basisProject/internal/controller/handler/auth"
@@ -53,11 +54,11 @@ func Run(
 
 	defer func() {
 		if err := mysqlDB.Close(); err != nil {
-			slog.Error(
-				"close mysql",
-				"error", err,
-			)
+			slog.Error("close mysql", "error", err)
+			return
 		}
+
+		slog.Info("mysql connection closed")
 	}()
 
 	redisClient, err := redisadapter.Open(
@@ -77,11 +78,11 @@ func Run(
 
 	defer func() {
 		if err := redisClient.Close(); err != nil {
-			slog.Error(
-				"close redis",
-				"error", err,
-			)
+			slog.Error("close redis", "error", err)
+			return
 		}
+
+		slog.Info("redis connection closed")
 	}()
 
 	userRepository := mysqladapter.NewUserRepository(mysqlDB)
@@ -99,6 +100,8 @@ func Run(
 		cfg.RateLimit.Window,
 	)
 
+	httpMetrics := prometheusadapter.NewHTTPMetrics()
+
 	passwordHasher := bcryptadapter.New()
 
 	tokenManager := jwtadapter.New(
@@ -110,6 +113,11 @@ func Run(
 		cfg.Email.BaseURL,
 		cfg.Email.Timeout,
 	)
+
+	defer func() {
+		emailClient.CloseIdleConnections()
+		slog.Info("email idle connections closed")
+	}()
 
 	authUseCase := authusecase.NewAuth(
 		userRepository,
@@ -142,11 +150,15 @@ func Run(
 		authHandler,
 		teamHandler,
 		taskHandler,
+		httpMetrics.Handler(),
 		authMiddleware.Authenticate,
 		rateLimitMiddleware.Limit,
 	)
 
-	rootHandler := middleware.Recovery(router)
+	rootHandler := middleware.Metrics(
+		httpMetrics,
+		middleware.Recovery(router),
+	)
 
 	server := httpcontroller.NewServer(
 		httpcontroller.ServerConfig{
@@ -160,20 +172,67 @@ func Run(
 		rootHandler,
 	)
 
-	slog.Info("application dependencies initialized")
+	serverErrors := make(chan error, 1)
 
-	slog.Info(
-		"http server started",
-		"address", server.Addr,
+	go func() {
+		slog.Info(
+			"http server started",
+			"address", server.Addr,
+		)
+
+		err := server.ListenAndServe()
+		if err != nil && !errors.Is(err, nethttp.ErrServerClosed) {
+			serverErrors <- fmt.Errorf(
+				"run http server: %w",
+				err,
+			)
+			return
+		}
+
+		serverErrors <- nil
+	}()
+
+	select {
+	case err := <-serverErrors:
+		return err
+
+	case <-ctx.Done():
+		slog.Info(
+			"shutdown signal received",
+			"timeout", cfg.App.ShutdownTimeout,
+		)
+	}
+
+	shutdownContext, cancel := context.WithTimeout(
+		context.Background(),
+		cfg.App.ShutdownTimeout,
 	)
+	defer cancel()
 
-	if err := server.ListenAndServe(); err != nil &&
-		!errors.Is(err, nethttp.ErrServerClosed) {
+	if err := server.Shutdown(shutdownContext); err != nil {
+		slog.Error(
+			"graceful http shutdown failed",
+			"error", err,
+		)
+
+		if closeErr := server.Close(); closeErr != nil {
+			slog.Error(
+				"force close http server",
+				"error", closeErr,
+			)
+		}
+
 		return fmt.Errorf(
-			"run http server: %w",
+			"shutdown http server: %w",
 			err,
 		)
 	}
+
+	if err := <-serverErrors; err != nil {
+		return err
+	}
+
+	slog.Info("http server stopped gracefully")
 
 	return nil
 }

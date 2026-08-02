@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"basisProject/internal/app"
 )
@@ -11,8 +13,20 @@ import (
 const configPath = "configs/config.yaml"
 
 func main() {
-	if err := app.Run(context.Background(), configPath); err != nil {
-		slog.Error("application startup failed", "error", err)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	if err := app.Run(ctx, configPath); err != nil {
+		slog.Error(
+			"application stopped with error",
+			"error", err,
+		)
 		os.Exit(1)
 	}
+
+	slog.Info("application stopped")
 }
