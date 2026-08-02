@@ -1,0 +1,9 @@
+.git
+.gitignore
+.idea
+.vscode
+.env
+configs/config.yaml
+bin
+coverage.out
+*.log
