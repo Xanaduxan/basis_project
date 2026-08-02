@@ -2,8 +2,9 @@
 
 ## Первый запуск
 
+добавить env и config.yaml
+
 ```powershell
-Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
@@ -13,12 +14,6 @@ docker compose up -d --build
 
 ```powershell
 docker run --rm --network basis_project_default -v "${PWD}/internal/migrations:/migrations" migrate/migrate:v4.18.3 -path=/migrations -database "mysql://task_user:task_password@tcp(mysql:3306)/task_manager?multiStatements=true" up
-```
-
-## Статус контейнеров
-
-```powershell
-docker compose ps
 ```
 
 ## Логи API
