@@ -40,8 +40,8 @@ type JwtConfig struct {
 }
 
 type EmailConfig struct {
-	BaseURL string `yaml:"base_url" env:"EMAIL_BASE_URL"`
-	Timeout string `yaml:"timeout" env:"EMAIL_TIMEOUT"`
+	BaseURL string        `yaml:"base_url" env:"EMAIL_BASE_URL"`
+	Timeout time.Duration `yaml:"timeout" env:"EMAIL_TIMEOUT"`
 }
 
 type RateLimitConfig struct {

@@ -14,9 +14,40 @@ type AuthHandler interface {
 	)
 }
 
+type TeamHandler interface {
+	Create(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
+
+	List(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
+
+	Invite(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
+}
+
+type TaskHandler interface {
+	Create(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
+
+	List(
+		w nethttp.ResponseWriter,
+		r *nethttp.Request,
+	)
+}
+
 func RegisterRoutes(
 	router *Router,
 	authHandler AuthHandler,
+	teamHandler TeamHandler,
+	taskHandler TaskHandler,
 	authenticate func(nethttp.Handler) nethttp.Handler,
 ) {
 	router.Handle(
@@ -31,6 +62,46 @@ func RegisterRoutes(
 		nethttp.HandlerFunc(authHandler.Login),
 	)
 
+	router.Handle(
+		nethttp.MethodPost,
+		"/teams",
+		authenticate(
+			nethttp.HandlerFunc(teamHandler.Create),
+		),
+	)
+
+	router.Handle(
+		nethttp.MethodGet,
+		"/teams",
+		authenticate(
+			nethttp.HandlerFunc(teamHandler.List),
+		),
+	)
+
+	router.Handle(
+		nethttp.MethodPost,
+		"/teams/{id}/invite",
+		authenticate(
+			nethttp.HandlerFunc(teamHandler.Invite),
+		),
+	)
+
+	router.Handle(
+		nethttp.MethodPost,
+		"/tasks",
+		authenticate(
+			nethttp.HandlerFunc(taskHandler.Create),
+		),
+	)
+
+	router.Handle(
+		nethttp.MethodGet,
+		"/tasks",
+		authenticate(
+			nethttp.HandlerFunc(taskHandler.List),
+		),
+	)
+
 	notImplemented := nethttp.HandlerFunc(
 		func(w nethttp.ResponseWriter, _ *nethttp.Request) {
 			WriteError(
@@ -41,14 +112,17 @@ func RegisterRoutes(
 		},
 	)
 
-	protected := authenticate(notImplemented)
+	protectedNotImplemented := authenticate(notImplemented)
 
-	router.Handle(nethttp.MethodPost, "/teams", protected)
-	router.Handle(nethttp.MethodGet, "/teams", protected)
-	router.Handle(nethttp.MethodPost, "/teams/{id}/invite", protected)
+	router.Handle(
+		nethttp.MethodPut,
+		"/tasks/{id}",
+		protectedNotImplemented,
+	)
 
-	router.Handle(nethttp.MethodPost, "/tasks", protected)
-	router.Handle(nethttp.MethodGet, "/tasks", protected)
-	router.Handle(nethttp.MethodPut, "/tasks/{id}", protected)
-	router.Handle(nethttp.MethodGet, "/tasks/{id}/history", protected)
+	router.Handle(
+		nethttp.MethodGet,
+		"/tasks/{id}/history",
+		protectedNotImplemented,
+	)
 }
