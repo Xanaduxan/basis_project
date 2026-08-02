@@ -59,7 +59,12 @@ func RegisterRoutes(
 	teamHandler TeamHandler,
 	taskHandler TaskHandler,
 	authenticate func(nethttp.Handler) nethttp.Handler,
+	rateLimit func(nethttp.Handler) nethttp.Handler,
 ) {
+	protected := func(handler nethttp.Handler) nethttp.Handler {
+		return authenticate(rateLimit(handler))
+	}
+
 	router.Handle(
 		nethttp.MethodPost,
 		"/register",
@@ -75,7 +80,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodPost,
 		"/teams",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(teamHandler.Create),
 		),
 	)
@@ -83,7 +88,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodGet,
 		"/teams",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(teamHandler.List),
 		),
 	)
@@ -91,7 +96,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodPost,
 		"/teams/{id}/invite",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(teamHandler.Invite),
 		),
 	)
@@ -99,7 +104,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodPost,
 		"/tasks",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(taskHandler.Create),
 		),
 	)
@@ -107,7 +112,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodGet,
 		"/tasks",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(taskHandler.List),
 		),
 	)
@@ -115,7 +120,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodPut,
 		"/tasks/{id}",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(taskHandler.Update),
 		),
 	)
@@ -123,7 +128,7 @@ func RegisterRoutes(
 	router.Handle(
 		nethttp.MethodGet,
 		"/tasks/{id}/history",
-		authenticate(
+		protected(
 			nethttp.HandlerFunc(taskHandler.History),
 		),
 	)

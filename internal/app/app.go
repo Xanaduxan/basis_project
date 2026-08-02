@@ -93,6 +93,12 @@ func Run(
 		cfg.Redis.TaskTTL,
 	)
 
+	rateLimiter := redisadapter.NewRateLimiter(
+		redisClient,
+		cfg.RateLimit.Requests,
+		cfg.RateLimit.Window,
+	)
+
 	passwordHasher := bcryptadapter.New()
 
 	tokenManager := jwtadapter.New(
@@ -127,6 +133,7 @@ func Run(
 	taskHandler := taskhandler.NewTask(tasksUseCase)
 
 	authMiddleware := middleware.NewAuth(tokenManager)
+	rateLimitMiddleware := middleware.NewRateLimit(rateLimiter)
 
 	router := httpcontroller.NewRouter()
 
@@ -136,6 +143,7 @@ func Run(
 		teamHandler,
 		taskHandler,
 		authMiddleware.Authenticate,
+		rateLimitMiddleware.Limit,
 	)
 
 	rootHandler := middleware.Recovery(router)

@@ -14,5 +14,17 @@ func (c Config) Validate() error {
 		return errors.New("jwt.secret is required")
 	}
 
+	if c.RateLimit.Requests <= 0 {
+		return errors.New(
+			"rate_limit.requests must be greater than zero",
+		)
+	}
+
+	if c.RateLimit.Window <= 0 {
+		return errors.New(
+			"rate_limit.window must be greater than zero",
+		)
+	}
+
 	return nil
 }

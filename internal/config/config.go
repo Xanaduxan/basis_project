@@ -20,6 +20,7 @@ type AppConfig struct {
 	IdleTimeout       time.Duration `yaml:"idle_timeout" env:"APP_IDLE_TIMEOUT"`
 	ShutdownTimeout   time.Duration `yaml:"shutdown_timeout" env:"APP_SHUTDOWN_TIMEOUT"`
 }
+
 type MySqlConfig struct {
 	DSN                   string        `yaml:"dsn" env:"MYSQL_DSN"`
 	MaxOpenConnections    int           `yaml:"max_open_connections" env:"MYSQL_MAX_OPEN_CONNECTIONS"`
@@ -45,6 +46,6 @@ type EmailConfig struct {
 }
 
 type RateLimitConfig struct {
-	Requests int    `yaml:"requests" env:"RATE_LIMIT_REQUESTS"`
-	Window   string `yaml:"window" env:"RATE_LIMIT_WINDOW"`
+	Requests int           `yaml:"requests" env:"RATE_LIMIT_REQUESTS"`
+	Window   time.Duration `yaml:"window" env:"RATE_LIMIT_WINDOW"`
 }
